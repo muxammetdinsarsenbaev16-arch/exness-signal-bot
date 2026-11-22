@@ -2,7 +2,7 @@ import json, logging, os, time, urllib.parse, urllib.request
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-TOKEN = "".join(os.getenv("TELEGRAM_BOT_TOKEN", "").split())
+TOKEN = "".join(os.getenv("TELEGRAM_BOT_TOKEN", "9049560133:AAGeA_Lb1OGf7D6PRzokS4qY5smUQyPQvsc").split())
 ADMIN_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 TD_KEY = os.getenv("TWELVEDATA_API_KEY", "").strip()
 
@@ -51,31 +51,44 @@ def is_admin(cid):
     return bool(ADMIN_ID) and str(cid).strip() == str(ADMIN_ID).strip()
 
 
+def _sanitize_url(url):
+    u = str(url).strip()
+    i = u.find("https://")
+    if i == -1:
+        i = u.find("http://")
+    if i != -1:
+        u = u[i:]
+    u = u.split("]")[0].split(")")[0].strip()
+    return u
+
+
+def _label_url(u):
+    base = u.split("?")[0]
+    if "/bot" in base:
+        return base.split("/bot")[0] + "/bot<TOKEN>" + base.split("/bot", 1)[1].split("/", 1)[-1]
+    return base
+
+
 def get_json(url):
-    clean = str(url).strip()
-    idx = clean.find("https://")
-    if idx == -1:
-        idx = clean.find("http://")
-    if idx != -1:
-        clean = clean[idx:]
+    clean = _sanitize_url(url)
+    if not clean.startswith(("https://", "http://")):
+        logging.warning("Invalid URL: %r", clean)
+        return {}
     req = urllib.request.Request(clean, headers={"User-Agent": "Mozilla/5.0"})
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
             return json.loads(r.read().decode("utf-8"))
     except Exception as e:
-        short_url = clean.split("?")[0]
-        if "/bot" in short_url:
-            short_url = short_url.split("/bot")[0] + "/bot<TOKEN>/..."
-        logging.warning("HTTP err (%s): %s", short_url, e)
+        logging.warning("HTTP err (%s): %s", _label_url(clean), e)
         return {}
-        
 
 
 def tg_post(method, payload):
     if not TOKEN:
         return {}
+    clean = _sanitize_url(f"https://api.telegram.org/bot{TOKEN}/{method}")
     req = urllib.request.Request(
-        f"https://api.telegram.org/bot{TOKEN}/{method}",
+        clean,
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -109,8 +122,9 @@ def send_code_file(cid):
         f"--{b}\r\nContent-Disposition: form-data; name=\"document\"; filename=\"signal_bot.py\"\r\n"
         f"Content-Type: text/x-python\r\n\r\n"
     ).encode("utf-8") + data + f"\r\n--{b}--\r\n".encode("utf-8")
+    clean = _sanitize_url(f"https://api.telegram.org/bot{TOKEN}/sendDocument")
     req = urllib.request.Request(
-        f"https://api.telegram.org/bot{TOKEN}/sendDocument",
+        clean,
         data=body,
         headers={"Content-Type": f"multipart/form-data; boundary={b}"},
         method="POST",
@@ -126,8 +140,9 @@ def download_doc(file_id):
     fp = (info.get("result") or {}).get("file_path")
     if not fp:
         return None
+    clean = _sanitize_url(f"https://api.telegram.org/file/bot{TOKEN}/{fp}")
     try:
-        with urllib.request.urlopen(f"https://api.telegram.org/file/bot{TOKEN}/{fp}", timeout=25) as r:
+        with urllib.request.urlopen(clean, timeout=25) as r:
             return r.read().decode("utf-8")
     except Exception:
         return None
@@ -178,7 +193,8 @@ def fetch_candles(pair, outputsize=40):
         return []
     sym = f"{pair[:3]}/{pair[3:]}" if len(pair) == 6 else pair
     q = urllib.parse.urlencode({"symbol": sym, "interval": "15min", "outputsize": outputsize, "apikey": TD_KEY})
-    data = get_json("[https://api.twelvedata.com/time_series](https://api.twelvedata.com/time_series)?" + q)
+    url = "[https://api.twelvedata.com/time_series](https://api.twelvedata.com/time_series)?" + q
+    data = get_json(url)
     if data.get("status") == "error":
         logging.warning("TwelveData (%s): %s", pair, data.get("message"))
         return []
@@ -207,7 +223,14 @@ def ema(closes, n):
 
 
 def atr(candles, n=14):
-    trs = [max(candles[i]["high"] - candles[i]["low"], abs(candles[i]["high"] - candles[i - 1]["close"]), abs(candles[i]["low"] - candles[i - 1]["close"])) for i in range(1, len(candles))]
+    trs = [
+        max(
+            candles[i]["high"] - candles[i]["low"],
+            abs(candles[i]["high"] - candles[i - 1]["close"]),
+            abs(candles[i]["low"] - candles[i - 1]["close"]),
+        )
+        for i in range(1, len(candles))
+    ]
     r = trs[-n:] if len(trs) >= n else trs
     return sum(r) / len(r) if r else 0.0
 
@@ -224,8 +247,20 @@ def find_setup(pair, candles, min_rr, min_conf):
     slw = min(c["low"] for c in candles[-8:-1])
     shg = max(c["high"] for c in candles[-8:-1])
 
-    b_conf = sum([ef > es, price > ef, last["close"] > last["open"], last["low"] <= slw * 1.0005 and last["close"] > slw, last["close"] > prev["high"]])
-    s_conf = sum([ef < es, price < ef, last["close"] < last["open"], last["high"] >= shg * 0.9995 and last["close"] < shg, last["close"] < prev["low"]])
+    b_conf = sum([
+        ef > es,
+        price > ef,
+        last["close"] > last["open"],
+        last["low"] <= slw * 1.0005 and last["close"] > slw,
+        last["close"] > prev["high"],
+    ])
+    s_conf = sum([
+        ef < es,
+        price < ef,
+        last["close"] < last["open"],
+        last["high"] >= shg * 0.9995 and last["close"] < shg,
+        last["close"] < prev["low"],
+    ])
     dec = 2 if "XAU" in pair else 5
 
     if b_conf >= s_conf and b_conf >= min_conf:
@@ -235,7 +270,16 @@ def find_setup(pair, candles, min_rr, min_conf):
         tp = round(price + risk * min_rr, dec)
         rr = round((tp - price) / risk, 2) if risk > 0 else 0
         if rr >= min_rr and tp > price > sl:
-            return {"pair": pair, "side": "BUY", "entry": round(price, dec), "sl": sl, "tp": tp, "rr": rr, "confirmations": b_conf, "be_moved": False}
+            return {
+                "pair": pair,
+                "side": "BUY",
+                "entry": round(price, dec),
+                "sl": sl,
+                "tp": tp,
+                "rr": rr,
+                "confirmations": b_conf,
+                "be_moved": False,
+            }
 
     if s_conf > b_conf and s_conf >= min_conf:
         dist = max(a * 1.1, abs(shg - price))
@@ -244,7 +288,16 @@ def find_setup(pair, candles, min_rr, min_conf):
         tp = round(price - risk * min_rr, dec)
         rr = round((price - tp) / risk, 2) if risk > 0 else 0
         if rr >= min_rr and sl > price > tp:
-            return {"pair": pair, "side": "SELL", "entry": round(price, dec), "sl": sl, "tp": tp, "rr": rr, "confirmations": s_conf, "be_moved": False}
+            return {
+                "pair": pair,
+                "side": "SELL",
+                "entry": round(price, dec),
+                "sl": sl,
+                "tp": tp,
+                "rr": rr,
+                "confirmations": s_conf,
+                "be_moved": False,
+            }
     return None
 
 
@@ -308,13 +361,21 @@ def scan_market(cfg):
         if setup:
             cfg.setdefault("active_signals", []).append(setup)
             save_cfg(cfg)
-            send_msg(ADMIN_ID, f"🚨 YANGI SIGNAL: {setup['pair']} ({setup['side']})\nEntry: {setup['entry']} | SL: {setup['sl']} | TP: {setup['tp']} ({setup['rr']}R) | Tasdiq: {setup['confirmations']}")
+            send_msg(
+                ADMIN_ID,
+                f"🚨 YANGI SIGNAL: {setup['pair']} ({setup['side']})\nEntry: {setup['entry']} | SL: {setup['sl']} | TP: {setup['tp']} ({setup['rr']}R) | Tasdiq: {setup['confirmations']}",
+            )
         time.sleep(9)
 
 
 def status_text(cfg):
     m = "Barcha sessiyalar (24/7)" if cfg.get("all_sessions", True) else "Killzone"
-    return f"📊 Holat\n• Juftliklar: {', '.join(PAIRS)}\n• Min RR: {cfg.get('min_rr')}R | Tasdiq: {cfg.get('min_confirmations')} ta\n• Rejim: {m}\n• Jami: {cfg.get('total_r', 0.0):+.2f}R | Aktiv: {len(cfg.get('active_signals', []))} ta"
+    return (
+        f"📊 Holat\n• Juftliklar: {', '.join(PAIRS)}\n"
+        f"• Min RR: {cfg.get('min_rr')}R | Tasdiq: {cfg.get('min_confirmations')} ta\n"
+        f"• Rejim: {m}\n"
+        f"• Jami: {cfg.get('total_r', 0.0):+.2f}R | Aktiv: {len(cfg.get('active_signals', []))} ta"
+    )
 
 
 def results_text(cfg):
@@ -322,7 +383,11 @@ def results_text(cfg):
     w = sum(1 for x in res if float(x.get("r", 0)) > 0)
     l = sum(1 for x in res if float(x.get("r", 0)) < 0)
     b = sum(1 for x in res if float(x.get("r", 0)) == 0)
-    lines = [f"📈 NATIJALAR\n• Umumiy R: {cfg.get('total_r', 0.0):+.2f}R\n• Aktiv: {len(cfg.get('active_signals', []))} ta\n• Oxirgi {len(res)} ta: +{w} TP | {b} BE | -{l} SL"]
+    lines = [
+        f"📈 NATIJALAR\n• Umumiy R: {cfg.get('total_r', 0.0):+.2f}R\n"
+        f"• Aktiv: {len(cfg.get('active_signals', []))} ta\n"
+        f"• Oxirgi {len(res)} ta: +{w} TP | {b} BE | -{l} SL"
+    ]
     for x in reversed(res[-8:]):
         lines.append(f"• {x['pair']} — {x['outcome']}: {float(x['r']):+.2f}R")
     return "\n".join(lines)
@@ -332,7 +397,8 @@ def handle_updates(cfg, last_id):
     q = {"timeout": 1, "allowed_updates": ["message"]}
     if last_id is not None:
         q["offset"] = last_id + 1
-    data = get_json(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){TOKEN}/getUpdates?{urllib.parse.urlencode(q)}")
+    url = "[https://api.telegram.org/bot](https://api.telegram.org/bot)" + TOKEN + "/getUpdates?" + urllib.parse.urlencode(q)
+    data = get_json(url)
     if not data.get("ok"):
         return last_id
     for item in data.get("result", []):
@@ -358,7 +424,11 @@ def handle_updates(cfg, last_id):
             if not is_admin(cid):
                 send_msg(cid, "⛔ Faqat admin uchun.", KB)
             else:
-                send_msg(cid, f"🛠 ADMIN PANEL\n\n{status_text(cfg)}\n\nBuyruqlar:\n/set_rr 2.0\n/set_conf 3\n/sessions all | killzone\n/reset_r\n/get_code\n/set_code <kod> (yoki .py fayl)\n/add_func <kod>\n/replace\\neski\\n---\\nyangi\n/rollback", KB)
+                send_msg(
+                    cid,
+                    f"🛠 ADMIN PANEL\n\n{status_text(cfg)}\n\nBuyruqlar:\n/set_rr 2.0\n/set_conf 3\n/sessions all | killzone\n/reset_r\n/get_code\n/set_code <kod> (yoki .py fayl)\n/add_func <kod>\n/replace\neski\n---\nyangi\n/rollback",
+                    KB,
+                )
         elif low.startswith("/get_code") and is_admin(cid):
             send_code_file(cid)
         elif low.startswith("/set_rr") and is_admin(cid):
@@ -387,7 +457,11 @@ def handle_updates(cfg, last_id):
             cfg["total_r"], cfg["closed_results"] = 0.0, []
             save_cfg(cfg)
             send_msg(cid, "✅ R va natijalar tozalandi.", KB)
-        elif (low.startswith("/set_code") or low.startswith("/update_code") or (doc.get("file_id") and not low.startswith("/add_func") and not low.startswith("/replace"))) and is_admin(cid):
+        elif (
+            low.startswith("/set_code")
+            or low.startswith("/update_code")
+            or (doc.get("file_id") and not low.startswith("/add_func") and not low.startswith("/replace"))
+        ) and is_admin(cid):
             code = download_doc(doc["file_id"]) if doc.get("file_id") else text[len("/update_code" if low.startswith("/update_code") else "/set_code"):]
             apply_code(code or "", cfg, cid)
         elif low.startswith("/add_func") and is_admin(cid):
@@ -421,7 +495,11 @@ def handle_updates(cfg, last_id):
 def main():
     cfg = load_cfg()
     save_cfg(cfg)
-    send_msg(ADMIN_ID, f"📡 EXNESS SIGNAL BOT ISHGA TUSHDI\nJuftliklar: {', '.join(PAIRS)} | Min RR: {cfg['min_rr']}R | Tasdiq: {cfg['min_confirmations']}\nAdmin: /admin", KB)
+    send_msg(
+        ADMIN_ID,
+        f"📡 EXNESS SIGNAL BOT ISHGA TUSHDI\nJuftliklar: {', '.join(PAIRS)} | Min RR: {cfg['min_rr']}R | Tasdiq: {cfg['min_confirmations']}\nAdmin: /admin",
+        KB,
+    )
     last_id, last_scan = None, 0.0
     while True:
         last_id = handle_updates(cfg, last_id)
