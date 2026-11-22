@@ -2,7 +2,7 @@ import json, logging, os, time, urllib.parse, urllib.request
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-TOKEN = "9049560133:AAGeA_Lb1OGf7D6PRzokS4qY5smUQyPQvsc"
+TOKEN = "".join(os.getenv("TELEGRAM_BOT_TOKEN", "9049560133:AAGeA_Lb1OGf7D6PRzokS4qY5smUQyPQvsc").split())
 ADMIN_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 TD_KEY = os.getenv("TWELVEDATA_API_KEY", "").strip()
 
@@ -52,7 +52,13 @@ def is_admin(cid):
 
 
 def get_json(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    clean = str(url).strip()
+    idx = clean.find("https://")
+    if idx == -1:
+        idx = clean.find("http://")
+    if idx != -1:
+        clean = clean[idx:]
+    req = urllib.request.Request(clean, headers={"User-Agent": "Mozilla/5.0"})
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
             return json.loads(r.read().decode("utf-8"))
@@ -384,43 +390,5 @@ def handle_updates(cfg, last_id):
             extra = text[len("/add_func"):].strip()
             with open(os.path.abspath(__file__), "r", encoding="utf-8") as f:
                 cur = f.read()
-            apply_code(cur.rstrip() + "\n\n\n" + extra + "\n", cfg, cid)
-        elif low.startswith("/replace") and is_admin(cid):
-            body = text[len("/replace"):].lstrip("\r\n")
-            if "\n---\n" not in body:
-                send_msg(cid, "Namuna:\n/replace\neski\n---\nyangi", KB)
-            else:
-                o, n = body.split("\n---\n", 1)
-                with open(os.path.abspath(__file__), "r", encoding="utf-8") as f:
-                    cur = f.read()
-                if o not in cur:
-                    send_msg(cid, "❌ Eski matn topilmadi.", KB)
-                else:
-                    apply_code(cur.replace(o, n, 1), cfg, cid)
-        elif low.startswith("/rollback") and is_admin(cid):
-            if os.path.exists(BAK_FILE):
-                with open(BAK_FILE, "r", encoding="utf-8") as f:
-                    apply_code(f.read(), cfg, cid)
-            else:
-                send_msg(cid, "❌ Zaxira fayl topilmadi.", KB)
-        elif text:
-            send_msg(cid, f"Qabul qilindi: \"{text}\"\nNatijalar: /results | Holat: /status", KB)
-    return last_id
-
-
-def main():
-    cfg = load_cfg()
-    save_cfg(cfg)
-    send_msg(ADMIN_ID, f"📡 EXNESS SIGNAL BOT ISHGA TUSHDI\nJuftliklar: {', '.join(PAIRS)} | Min RR: {cfg['min_rr']}R | Tasdiq: {cfg['min_confirmations']}\nAdmin: /admin", KB)
-    last_id, last_scan = None, 0.0
-    while True:
-        last_id = handle_updates(cfg, last_id)
-        if time.time() - last_scan >= int(cfg.get("check_interval_sec", 300)):
-            last_scan = time.time()
-            scan_market(cfg)
-        time.sleep(2)
-
-
-if __name__ == "__main__":
-    main()
+            apply_
     
