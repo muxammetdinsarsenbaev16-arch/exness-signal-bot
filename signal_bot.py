@@ -63,8 +63,12 @@ def get_json(url):
         with urllib.request.urlopen(req, timeout=20) as r:
             return json.loads(r.read().decode("utf-8"))
     except Exception as e:
-        logging.warning("HTTP err: %s", e)
+        short_url = clean.split("?")[0]
+        if "/bot" in short_url:
+            short_url = short_url.split("/bot")[0] + "/bot<TOKEN>/..."
+        logging.warning("HTTP err (%s): %s", short_url, e)
         return {}
+        
 
 
 def tg_post(method, payload):
