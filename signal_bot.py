@@ -2,7 +2,7 @@ import json, logging, os, time, urllib.parse, urllib.request
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-TOKEN = "".join(ch for ch in os.getenv("TELEGRAM_BOT_TOKEN", "") if ch.isprintable() and not ch.isspace() and ch != "[")
+TOKEN = "9049560133:AAGeA_Lb1OGf7D6PRzokS4qY5smUQyPQvsc"
 ADMIN_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 TD_KEY = os.getenv("TWELVEDATA_API_KEY", "").strip()
 
