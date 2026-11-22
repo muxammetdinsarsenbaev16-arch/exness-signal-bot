@@ -215,7 +215,7 @@ def apply_code_safely(new_code: str, cfg: dict, chat_id: str) -> None:
     except Exception as exc:
         send_message(chat_id, f"❌ Kodni saqlashda xato: {exc}", reply_markup=USER_KEYBOARD)
     def record_closed_result(cfg: dict, pair: str, outcome: str, r_value: float) -> None:
-    entry = {
+        entry = {
         "pair": pair,
         "outcome": outcome,
         "r": round(float(r_value), 2),
