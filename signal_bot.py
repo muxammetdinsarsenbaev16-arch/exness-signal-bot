@@ -174,7 +174,7 @@ def fetch_candles(pair, outputsize=40):
         return []
     sym = f"{pair[:3]}/{pair[3:]}" if len(pair) == 6 else pair
     q = urllib.parse.urlencode({"symbol": sym, "interval": "15min", "outputsize": outputsize, "apikey": TD_KEY})
-    data = get_json(f"[https://api.twelvedata.com/time_series](https://api.twelvedata.com/time_series)?{q}")
+    data = get_json("[https://api.twelvedata.com/time_series](https://api.twelvedata.com/time_series)?" + q)
     if data.get("status") == "error":
         logging.warning("TwelveData (%s): %s", pair, data.get("message"))
         return []
@@ -390,5 +390,42 @@ def handle_updates(cfg, last_id):
             extra = text[len("/add_func"):].strip()
             with open(os.path.abspath(__file__), "r", encoding="utf-8") as f:
                 cur = f.read()
-            apply_
-    
+            apply_code(cur.rstrip() + "\n\n\n" + extra + "\n", cfg, cid)
+        elif low.startswith("/replace") and is_admin(cid):
+            body = text[len("/replace"):].lstrip("\r\n")
+            if "\n---\n" not in body:
+                send_msg(cid, "Namuna:\n/replace\neski\n---\nyangi", KB)
+            else:
+                o, n = body.split("\n---\n", 1)
+                with open(os.path.abspath(__file__), "r", encoding="utf-8") as f:
+                    cur = f.read()
+                if o not in cur:
+                    send_msg(cid, "❌ Eski matn topilmadi.", KB)
+                else:
+                    apply_code(cur.replace(o, n, 1), cfg, cid)
+        elif low.startswith("/rollback") and is_admin(cid):
+            if os.path.exists(BAK_FILE):
+                with open(BAK_FILE, "r", encoding="utf-8") as f:
+                    apply_code(f.read(), cfg, cid)
+            else:
+                send_msg(cid, "❌ Zaxira fayl topilmadi.", KB)
+        elif text:
+            send_msg(cid, f"Qabul qilindi: \"{text}\"\nNatijalar: /results | Holat: /status", KB)
+    return last_id
+
+
+def main():
+    cfg = load_cfg()
+    save_cfg(cfg)
+    send_msg(ADMIN_ID, f"📡 EXNESS SIGNAL BOT ISHGA TUSHDI\nJuftliklar: {', '.join(PAIRS)} | Min RR: {cfg['min_rr']}R | Tasdiq: {cfg['min_confirmations']}\nAdmin: /admin", KB)
+    last_id, last_scan = None, 0.0
+    while True:
+        last_id = handle_updates(cfg, last_id)
+        if time.time() - last_scan >= int(cfg.get("check_interval_sec", 300)):
+            last_scan = time.time()
+            scan_market(cfg)
+        time.sleep(2)
+
+
+if __name__ == "__main__":
+    main()
