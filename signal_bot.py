@@ -2,7 +2,7 @@ import json, logging, os, time, urllib.parse, urllib.request
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-TOKEN = "".join(os.getenv("TELEGRAM_BOT_TOKEN", "9049560133:AAGeA_Lb1OGf7D6PRzokS4qY5smUQyPQvsc").split())
+TOKEN = "".join(os.getenv("TELEGRAM_BOT_TOKEN", "").split())
 ADMIN_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 TD_KEY = os.getenv("TWELVEDATA_API_KEY", "").strip()
 
@@ -495,6 +495,7 @@ def handle_updates(cfg, last_id):
 def main():
     cfg = load_cfg()
     save_cfg(cfg)
+    logging.info("CFG check | TOKEN_len=%d | ADMIN_set=%s | TD_len=%d", len(TOKEN), bool(ADMIN_ID), len(TD_KEY))
     send_msg(
         ADMIN_ID,
         f"📡 EXNESS SIGNAL BOT ISHGA TUSHDI\nJuftliklar: {', '.join(PAIRS)} | Min RR: {cfg['min_rr']}R | Tasdiq: {cfg['min_confirmations']}\nAdmin: /admin",
@@ -502,12 +503,16 @@ def main():
     )
     last_id, last_scan = None, 0.0
     while True:
-        last_id = handle_updates(cfg, last_id)
-        if time.time() - last_scan >= int(cfg.get("check_interval_sec", 300)):
-            last_scan = time.time()
-            scan_market(cfg)
+        try:
+            last_id = handle_updates(cfg, last_id)
+            if time.time() - last_scan >= int(cfg.get("check_interval_sec", 300)):
+                last_scan = time.time()
+                scan_market(cfg)
+        except Exception as e:
+            logging.warning("Loop err: %s", e)
         time.sleep(2)
 
 
 if __name__ == "__main__":
     main()
+    
